@@ -11,9 +11,21 @@ library(shiny)
 con <- dbConnect(drv=RSQLite::SQLite(), dbname= "~/ ..... /all-lumosql-benchmark-data-combined.sqlite" )
 
 
+
+nnn <- dbGetQuery(con, paste0("select run_id from run_data where (key = 'tests-ok' and value = '17') "))
+for (i in nnn[,1]){
+  l = dbGetQuery(con, paste0("select value from run_data where key in ('backend-version') and run_id = '",i,"' "))
+  if (length(l[,1]) == 0){
+    line <- data.frame(i, 'backend-version', 'NA')
+    colnames(line) <- list('run_id','key','value')
+    dbAppendTable(con, "run_data", line)
+  }
+}
+
+
 ds_list <- dbGetQuery(con, paste0("select distinct value from run_data where key = 'option-datasize' order by value") )[,1]
 os_list <- dbGetQuery(con, paste0("select distinct value from run_data where key = 'os-version' order by value") )[,1]
-be_list <- append(dbGetQuery(con, paste0("select distinct value from run_data where key = 'backend-version' order by value") )[,1], 'NA' )
+be_list <- dbGetQuery(con, paste0("select distinct value from run_data where key = 'backend-version' order by value") )[,1]
 
 
 #----- shiny app
@@ -29,11 +41,11 @@ ui <- fluidPage(
       radioButtons(inputId = "os",
                    label = "Operating System Version",
                    choices = os_list,
-                   selected = os_list[1] ),
+                   selected = '5.15.23' ),
       checkboxGroupInput("be",
                          "Backend Version",
                          be_list,
-                         be_list[1] )
+                         '0.9.29' )
     ),
     
     mainPanel(
@@ -60,6 +72,17 @@ server <- function(input, output, session) {
           
           idees <- rbind(idees, iii)
         }}}
+
+#-----error message when no data found
+    if (length(idees[,1]) == 1){
+       validate(
+         need(length(idees[,1]) == 0, "No data in this selection")
+       )
+    }
+    
+    
+    
+    
     
 #---- collect info about the runs    
     mat <- matrix(ncol = 4)
@@ -69,7 +92,7 @@ server <- function(input, output, session) {
     idees <- idees[-1,]
     for (h in idees){
       lll <- dbGetQuery(con, paste0("select value from run_data where key in ('sqlite-version') and run_id = '",h,"' "))
-      bbb <- dbGetQuery(con, paste0("select value from run_data where key in ('backend-version','cpu-type', 'cpu-comment', 'disk-comment','word-size') and run_id = '",h,"' "))
+      bbb <- dbGetQuery(con, paste0("select value from run_data where key in ('backend-name', 'backend-version','cpu-type', 'cpu-comment', 'disk-comment','word-size') and run_id = '",h,"' "))
       timez <- dbGetQuery(con, paste0("select value from test_data where run_id = '",h,"' and key in ('real-time') ") )
       duration <- sum(as.numeric(timez[,1]) )
       pointer <- paste(as.character(bbb[,1]),collapse = ' ')
