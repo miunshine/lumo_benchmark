@@ -10,6 +10,8 @@ library(ggpubr)
 library(ggiraph)
 
 # enter your path to database
+# the database with our results can be downloaded from the address below
+# wget https://lumosql.org/dist/benchmarks-to-date/all-lumosql-benchmark-data-combined.sqlite
 con <- dbConnect(drv=RSQLite::SQLite(), dbname= "~/ ..... /all-lumosql-benchmark-data-combined.sqlite" )
 
 
