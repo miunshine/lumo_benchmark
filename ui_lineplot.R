@@ -1,11 +1,13 @@
 #---get the following packages:
 
-#install.packages(c('RSQLite' , 'DBI', 'ggplot2', 'shiny'))
+#install.packages(c('RSQLite' , 'DBI', 'ggplot2', 'shiny', 'ggpubr', 'ggiraph'))
 
 library(RSQLite)
 library(DBI)
 library(ggplot2)
 library(shiny)
+library(ggpubr)
+library(ggiraph)
 
 # enter your path to database
 con <- dbConnect(drv=RSQLite::SQLite(), dbname= "~/ ..... /all-lumosql-benchmark-data-combined.sqlite" )
@@ -29,40 +31,45 @@ be_list <- dbGetQuery(con, paste0("select distinct value from run_data where key
 
 
 #----- shiny app
-ui <- fluidPage(
+ui <- shinyUI(fluidPage(
   headerPanel(title = "LumoSQL Benchmark Filter"),
   sidebarLayout(
     
     sidebarPanel(
-      radioButtons("ds",
-                   "Datasize",
-                   ds_list,
-                   ds_list[1] ),
-      radioButtons(inputId = "os",
-                   label = "Operating System Version",
-                   choices = os_list,
-                   selected = '5.15.23' ),
+      selectInput("ds",
+                  "Datasize",
+                  ds_list,
+                  ds_list[1]
+      ),
+      checkboxGroupInput(inputId = "os",
+                         label = "Operating System Version",
+                         choices = os_list,
+                         selected = '5.15.23' ),
       checkboxGroupInput("be",
                          "Backend Version",
                          be_list,
-                         '0.9.29' )
+                         '0.9.29' ),
+      width = 3
     ),
     
     mainPanel(
-      plotOutput(outputId = "theplot")
+      ggiraphOutput("theplot"),
+
+      plotOutput(outputId = "thelegend")
     )
-  ))
+  )
+))
 
-
-server <- function(input, output, session) {
+server <- shinyServer(function(input,output) {
+  
+  
   globaldf <- reactive({
     
-#-----find runs with selected criteria  
+    #-----find runs with selected criteria
     for(j in input$ds){
+      idees <- data.frame('run_id')
+      colnames(idees) <- c('run_id')
       for(k in input$os){
-        
-        idees <- data.frame('run_id')
-        colnames(idees) <- c('run_id')
         for (i in input$be){
           iii <- dbGetQuery(con, paste0("select run_id from run_data where (key = 'tests-ok' and value = '17')
                                       intersect select run_id from run_data where (key = 'backend-version' and value = '",i,"')
@@ -72,50 +79,75 @@ server <- function(input, output, session) {
           
           idees <- rbind(idees, iii)
         }}}
-
-#-----error message when no data found
+    
+    #-----error message when no data found
     if (length(idees[,1]) == 1){
-       validate(
-         need(length(idees[,1]) == 0, "No data in this selection")
-       )
+      validate(
+        need(length(idees[,1]) == 0, "No data in this selection")
+      )
+      
     }
     
     
-    
-    
-    
-#---- collect info about the runs    
+    #---- collect info about the runs
     mat <- matrix(ncol = 4)
     df <- as.data.frame(mat)
     colnames(df) <- list('run_id', 'time', 'sqlite_version' , 'pointer')
     
+    
     idees <- idees[-1,]
+    
     for (h in idees){
       lll <- dbGetQuery(con, paste0("select value from run_data where key in ('sqlite-version') and run_id = '",h,"' "))
-      bbb <- dbGetQuery(con, paste0("select value from run_data where key in ('backend-name', 'backend-version','cpu-type', 'cpu-comment', 'disk-comment','word-size') and run_id = '",h,"' "))
+      if (as.character(lll) == ''){
+        lll <- c('3.18.2')
+        lll <- as.data.frame(lll)
+      }
+      
+      bbb <- dbGetQuery(con, paste0("select value from run_data where key in ('os-version','backend-name', 'backend-version','cpu-type', 'cpu-comment', 'disk-comment','word-size') and run_id = '",h,"' "))
       timez <- dbGetQuery(con, paste0("select value from test_data where run_id = '",h,"' and key in ('real-time') ") )
       duration <- sum(as.numeric(timez[,1]) )
       pointer <- paste(as.character(bbb[,1]),collapse = ' ')
       
       darow <- data.frame(h, duration, lll[,1], pointer  )
+      
       colnames(darow) <- colnames(df)
       df <- rbind(df, darow)
+      
     }
     
+    df <- df[-1,]
     
     
-#--- generate plot    
-    pl <-  ggplot(data=df, aes(x=sqlite_version, y=time, group=pointer, colour=pointer )) +
-      geom_line()+
-      geom_point()+
-      theme(legend.position="left")
     
-    return(pl)
+    return(df)
     
   })
   
-  output$theplot <- renderPlot(globaldf())
-  
-}
+  output$theplot <- renderggiraph({
+    gg <- ggplot(globaldf(), aes(x=sqlite_version, y=time, group=pointer, color=pointer))
+    gg <- gg + 
+      geom_line_interactive(aes(tooltip = pointer, data_id = pointer), size = 1.3)+
+      theme(legend.position="none")
 
+    girafe(ggobj = gg, width_svg = 8, height_svg = 6,
+           options = list(
+             opts_hover_inv(css = "opacity:0.1;"),
+             opts_hover(css = "stroke-width:2;")
+           ))
+  })
+
+  output$thelegend <- renderPlot({
+    pl <-  ggplot(data=globaldf(), aes(x=sqlite_version, y=time, group=pointer, colour=pointer )) +
+      geom_line()+
+      geom_point()+
+      theme(legend.position="bottom")+
+      guides(col = guide_legend(nrow = 23))
+
+    leg <- get_legend(pl)
+    as_ggplot(leg)
+  })
+  
+})
 shinyApp(ui, server)
+
